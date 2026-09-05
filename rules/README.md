@@ -38,9 +38,19 @@ engine), not the ModSecurity operator set. That means:
 sets) under RE2 and rejects duplicate IDs, so a broken bundle fails CI rather than
 shipping inert.
 
-## SpiderLabs / OWASP-CRS
+## OWASP CRS
 
-A raw ModSecurity CRS export is **not** RE2-loadable as-is. Generate an
-RE2-compatible subset with [`get_spiderlabs_rules.py`](../get_spiderlabs_rules.py)
-(keeps `@rx` regex rules only) or [`get_owasp_rules.py`](../get_owasp_rules.py), then
-point `rule_file` at the output.
+A raw ModSecurity CRS export is **not** RE2-loadable as-is (operators, chained
+rules, `t:` names and per-parameter anchors all differ). Generate a loadable,
+RE2-validated subset with [`get_owasp_rules.py`](../get_owasp_rules.py), which
+ports the `@rx`/`@pm`/`@pmFromFile` rules and writes a coverage report of what
+it had to skip:
+
+```bash
+python3 get_owasp_rules.py --ref v4.9.0 --output-dir rules/crs
+```
+
+See [docs/scripts.md](../docs/scripts.md#get_owasp_rulespy) for the options.
+[`get_spiderlabs_rules.py`](../get_spiderlabs_rules.py) is the older, cruder
+converter for the SpiderLabs rule set (keeps `@rx` rules only, validates with
+Python's `re`, not RE2).
