@@ -40,7 +40,7 @@ python3 get_owasp_rules.py --source ~/src/coreruleset/rules --paranoia-level 2 \
 
 | Option | Meaning |
 |---|---|
-| `--ref TAG` / `--source DIR` | CRS git tag to download, or a local `rules/` directory (no network). |
+| `--ref TAG` / `--source DIR` | CRS git tag to download (default `v4.9.0`), or a local `rules/` directory (no network; `--ref` then only labels the report). |
 | `--output-dir DIR` | One request bundle per paranoia level (`crs-pl1.json` … `crs-pl4.json`) plus `crs-plN-response.json` for the phase 3/4 rules. |
 | `--output FILE --paranoia-level N` | One cumulative request bundle up to level N; response rules go to `FILE-response.json`. |
 | `--tuning FILE` | Per-rule adjustments, one per line: `<id> remove` drops a rule, `<id> remove-target BODY` keeps it off one target. `#` comments are copied into the report as the reason. |

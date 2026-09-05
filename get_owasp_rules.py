@@ -1021,9 +1021,8 @@ def read_tuning(path: Optional[str], inline_exclude: Optional[str]) -> Tuning:
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    src = parser.add_mutually_exclusive_group()
-    src.add_argument("--source", help="local CRS rules/ directory (skips the download)")
-    src.add_argument("--ref", default=DEFAULT_REF, help=f"CRS git tag to download (default {DEFAULT_REF})")
+    parser.add_argument("--source", help="local CRS rules/ directory (skips the download; --ref then only labels the report)")
+    parser.add_argument("--ref", default=DEFAULT_REF, help=f"CRS git tag to download (default {DEFAULT_REF})")
     out = parser.add_mutually_exclusive_group()
     out.add_argument("--output-dir", help="write one request bundle per paranoia level (crs-pl1.json … crs-pl4.json) "
                      "plus the response-phase rules as crs-plN-response.json")
@@ -1043,7 +1042,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.output_dir and not args.output:
         args.output_dir = "rules/crs"
     repo_root = os.path.dirname(os.path.abspath(__file__))
-    ref = args.ref if not args.source else os.path.basename(os.path.dirname(os.path.abspath(args.source))) or "local"
+    ref = args.ref
 
     with tempfile.TemporaryDirectory() as tmp:
         rules_dir = args.source or download_crs(args.ref, tmp)
