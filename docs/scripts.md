@@ -30,8 +30,8 @@ All scripts require outbound HTTPS access to their respective sources.
 ### `get_owasp_rules.py`
 
 ```bash
-# Regenerate the shipped bundles (downloads the CRS v4.9.0 tarball from GitHub):
-python3 get_owasp_rules.py --ref v4.9.0 --output-dir rules/crs --tuning rules/crs/tuning.txt
+# One request bundle per paranoia level, downloading the CRS v4.9.0 tarball from GitHub:
+python3 get_owasp_rules.py --ref v4.9.0 --output-dir rules/crs
 
 # One cumulative file up to paranoia level 2, from a local CRS checkout:
 python3 get_owasp_rules.py --source ~/src/coreruleset/rules --paranoia-level 2 \
@@ -43,10 +43,10 @@ python3 get_owasp_rules.py --source ~/src/coreruleset/rules --paranoia-level 2 \
 | `--ref TAG` / `--source DIR` | CRS git tag to download, or a local `rules/` directory (no network). |
 | `--output-dir DIR` | One request bundle per paranoia level (`crs-pl1.json` … `crs-pl4.json`) plus `crs-plN-response.json` for the phase 3/4 rules. |
 | `--output FILE --paranoia-level N` | One cumulative request bundle up to level N; response rules go to `FILE-response.json`. |
-| `--tuning FILE` | Per-rule adjustments: `<id> remove` drops a rule, `<id> remove-target BODY` keeps it off one target. `#` comments are copied into the report as the reason. |
+| `--tuning FILE` | Per-rule adjustments, one per line: `<id> remove` drops a rule, `<id> remove-target BODY` keeps it off one target. `#` comments are copied into the report as the reason. |
 | `--exclude 920350,920440` | Ad hoc rule removal without a tuning file. |
 | `--block-severity CRITICAL` | Emit `"action": "block"` for rules at or above that severity. Default: every rule is `log` (advisory). |
-| `--re2check go\|python\|auto` | Pattern validator. `go` runs `go run ./tools/re2check` so patterns are compiled by the same `regexp` package caddy-waf uses; `python` is a syntax heuristic for machines without Go. |
+| `--re2check go\|python\|auto` | Pattern validator. `go` runs `go run ./tools/re2check` so patterns are compiled by the same `regexp` package caddy-waf uses and fails if that is not possible; `python` is a syntax heuristic (lookaround, backreferences) for machines without Go; `auto` (default) uses Go when the helper and toolchain are available and warns and falls back otherwise, e.g. when the script has been copied out of the repository. |
 | `--report FILE` | Where to write the coverage report (default `COVERAGE.md` next to the output). |
 
 What gets ported, and what does not:
@@ -109,7 +109,7 @@ To keep blacklists fresh, schedule the scripts with `cron` or systemd timers. Re
 0 */6 * * * cd /etc/caddy && /usr/bin/python3 get_blacklisted_dns.py >> /var/log/caddy/dns-feed.log 2>&1
 
 # Refresh the CRS bundle nightly (re-validates against RE2; needs the go toolchain)
-30 3 * * *  cd /etc/caddy && /usr/bin/python3 get_owasp_rules.py --output /etc/caddy/feeds/crs-pl1.json --tuning /etc/caddy/crs-tuning.txt >> /var/log/caddy/owasp.log 2>&1
+30 3 * * *  cd /etc/caddy && /usr/bin/python3 get_owasp_rules.py --output /etc/caddy/feeds/crs-pl1.json >> /var/log/caddy/owasp.log 2>&1
 ```
 
 When the script writes a new `ip_blacklist.txt` or `dns_blacklist.txt` over the file pointed to by the corresponding `*_file` directive, the file watcher fires and the WAF rebuilds the prefix trie / DNS map atomically (see [dynamicupdates.md](dynamicupdates.md)).

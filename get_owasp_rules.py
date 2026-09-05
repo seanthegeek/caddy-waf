@@ -623,6 +623,19 @@ def re2_validate(entries: List[Tuple[str, str]], mode: str, repo_root: str) -> D
     if mode == "python":
         return python_heuristic_failures(entries)
     remaining = [{"id": i, "pattern": p} for i, p in entries]
+
+    def fallback(problem: str) -> Dict[str, str]:
+        # ``auto`` degrades to the heuristic (e.g. the script was copied out of
+        # the repository, or Go is not installed); ``go`` is a hard requirement.
+        if mode == "go":
+            raise SystemExit(f"re2check: {problem}; pass --re2check python to skip RE2 validation")
+        print(f"warning: {problem}; falling back to the Python syntax heuristic (patterns are NOT RE2-validated)",
+              file=sys.stderr)
+        return python_heuristic_failures(entries)
+
+    helper = os.path.join(repo_root, "tools", "re2check", "main.go")
+    if not os.path.isfile(helper):
+        return fallback(f"{helper} not found")
     try:
         proc = subprocess.run(
             ["go", "run", "./tools/re2check"],
@@ -632,12 +645,9 @@ def re2_validate(entries: List[Tuple[str, str]], mode: str, repo_root: str) -> D
             check=False,
         )
     except FileNotFoundError:
-        if mode == "go":
-            raise SystemExit("re2check: the go toolchain is not installed; pass --re2check python to skip RE2 validation")
-        print("warning: go not found; falling back to the Python syntax heuristic (patterns are NOT RE2-validated)", file=sys.stderr)
-        return python_heuristic_failures(entries)
+        return fallback("the go toolchain is not installed")
     if proc.returncode != 0:
-        raise SystemExit(f"re2check failed:\n{proc.stderr.decode('utf-8', 'replace')}")
+        return fallback("go run ./tools/re2check failed: " + proc.stderr.decode("utf-8", "replace").strip())
     failures.update(json.loads(proc.stdout.decode("utf-8")))
     return failures
 
@@ -792,6 +802,10 @@ def apply_block_severity(translated: List[Translated], block_severity: Optional[
             t.rule["action"] = "block"
 
 
+def plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
 def is_request_phase(phase: int) -> bool:
     return phase in (1, 2)
 
@@ -814,6 +828,7 @@ def write_report(
     skipped: List[Skipped],
     totals: Counter,
     outputs: Dict[str, int],
+    tuning_path: Optional[str] = None,
 ) -> None:
     by_file_emitted: Counter = Counter(t.source_file for t in translated)
     by_file_skipped: Counter = Counter(s.source_file for s in skipped)
@@ -838,7 +853,7 @@ def write_report(
     lines.append(f"- Ported: {len(translated)} (" + ", ".join(f"PL{pl}: {n}" for pl, n in sorted(by_pl.items())) + ")")
     lines.append(f"- Skipped: {len(skipped)}")
     for name, count in outputs.items():
-        lines.append(f"- `{os.path.basename(name)}`: {count} rules")
+        lines.append(f"- `{os.path.basename(name)}`: {plural(count, 'rule')}")
     lines.append("")
     lines.append("### Skip reasons")
     lines.append("")
@@ -898,11 +913,13 @@ def write_report(
         "value that is not the first or last one. Affected rules are listed "
         "below."
     )
+    tuning_source = f"`{os.path.basename(tuning_path)}` (passed with `--tuning`)" if tuning_path else "a `--tuning` file"
     lines.append(
-        "- **Tuning.** `rules/crs/tuning.txt` removes a target from rules that "
-        "cannot be applied to a raw body without matching ordinary JSON, YAML "
-        "or multipart framing; the reason is recorded per rule below. This is "
-        "the caddy-waf equivalent of a CRS `SecRuleUpdateTargetById` exclusion."
+        f"- **Tuning.** {tuning_source} can remove a rule, or remove one target "
+        "from a rule that cannot be applied to a raw body without matching "
+        "ordinary JSON, YAML or multipart framing; the reason is recorded per "
+        "rule below. This is the caddy-waf equivalent of the CRS "
+        "`SecRuleRemoveById` / `SecRuleUpdateTargetById` exclusions."
     )
     lines.append(
         "- **Paranoia levels and scoring.** The `paranoia-level/N` tag is recorded "
@@ -1060,9 +1077,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             outputs[path] = len(rules)
         report = args.report or os.path.join(os.path.dirname(args.output) or ".", "COVERAGE.md")
 
-    write_report(report, ref, translated, skipped, totals, outputs)
+    write_report(report, ref, translated, skipped, totals, outputs, args.tuning)
     for name, count in outputs.items():
-        print(f"wrote {count} rules to {name}")
+        print(f"wrote {plural(count, 'rule')} to {name}")
     print(f"ported {len(translated)} of {sum(totals.values())} CRS rules; {len(skipped)} skipped (see {report})")
     return 0
 

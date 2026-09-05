@@ -279,6 +279,16 @@ class TranslationTests(unittest.TestCase):
         failures = owasp.re2_validate([("ok", r"(?i)a|b"), ("look", r"a(?=b)"), ("big", r"a{1001}")], "go", REPO_ROOT)
         self.assertEqual(sorted(failures), ["big", "look"])
 
+    def test_auto_mode_falls_back_without_the_helper(self):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            failures = owasp.re2_validate([("look", r"a(?=b)"), ("ok", "a")], "auto", self.tmp)
+        self.assertEqual(sorted(failures), ["look"])
+        self.assertIn("falling back", err.getvalue())
+
+    def test_go_mode_requires_the_helper(self):
+        with self.assertRaises(SystemExit):
+            owasp.re2_validate([("ok", "a")], "go", self.tmp)
+
     def test_report(self):
         translated, skipped, totals = self.translate()
         report = os.path.join(self.tmp, "COVERAGE.md")
@@ -287,6 +297,10 @@ class TranslationTests(unittest.TestCase):
         self.assertIn("# OWASP CRS v0-test translation coverage", text)
         self.assertIn("- CRS rules with an id: 13", text)
         self.assertIn("`crs-pl1.json`: 4 rules", text)
+        owasp.write_report(report, "v0-test", translated, skipped, totals, {"one.json": 1}, "my-tuning.txt")
+        text = open(report).read()
+        self.assertIn("`one.json`: 1 rule\n", text)
+        self.assertIn("`my-tuning.txt` (passed with `--tuning`)", text)
         self.assertIn("| chained rule | 1 |", text)
         self.assertIn("| 920170 | sample.conf | chained rule: caddy-waf has no rule chaining |", text)
         self.assertIn("| crs-942200 | sample.conf |", text)
