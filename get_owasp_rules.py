@@ -765,9 +765,10 @@ def translate_directory(
             result, skip = translate_rule(rule, rules_dir)
             if result and rule.id in tuning.remove_targets:
                 for target, reason in tuning.remove_targets[rule.id].items():
-                    if target in result.rule["targets"]:
-                        result.rule["targets"].remove(target)
-                        result.notes.append(f"target {target} removed by tuning: {reason}")
+                    present = [t for t in result.rule["targets"] if t.lower() == target.lower()]
+                    for t in present:
+                        result.rule["targets"].remove(t)
+                        result.notes.append(f"target {t} removed by tuning: {reason}")
                 if not result.rule["targets"]:
                     skip, result = Skipped(rule.id, name, "removed by tuning", "every target removed"), None
             if skip:
@@ -961,7 +962,7 @@ def download_crs(ref: str, dest: str) -> str:
     """Download the CRS tarball for ``ref`` and return the extracted rules dir."""
     url = f"https://github.com/{CRS_REPO}/archive/refs/tags/{ref}.tar.gz"
     print(f"Downloading {url}")
-    with urllib.request.urlopen(url) as resp:  # noqa: S310 - fixed GitHub URL
+    with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310 - fixed GitHub URL
         data = resp.read()
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
         members = [m for m in tar.getmembers() if "/rules/" in m.name and m.isfile()]
@@ -974,6 +975,12 @@ def download_crs(ref: str, dest: str) -> str:
                 continue
             tar.extract(m, dest)
     return os.path.join(dest, "rules")
+
+
+def normalize_target(target: str) -> str:
+    """Upper-case the base name, keep a selector as written (``HEADERS:User-Agent``)."""
+    base, sep, selector = target.strip().partition(":")
+    return base.upper() + sep + selector
 
 
 @dataclass
@@ -1013,7 +1020,7 @@ def read_tuning(path: Optional[str], inline_exclude: Optional[str]) -> Tuning:
                 tuning.remove[rule_id] = reason
             elif directive == "remove-target" and len(words) == 3:
                 for target in words[2].split(","):
-                    tuning.remove_targets.setdefault(rule_id, {})[target.strip().upper()] = reason
+                    tuning.remove_targets.setdefault(rule_id, {})[normalize_target(target)] = reason
             else:
                 raise SystemExit(f"{path}:{number}: expected '<id> remove' or '<id> remove-target <TARGET[,TARGET]>'")
     return tuning

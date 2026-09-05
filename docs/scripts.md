@@ -55,7 +55,7 @@ What gets ported, and what does not:
 - Skipped, and listed in the report with the reason: chained rules, every non-regex operator (`@detectSQLi`, `@validateByteRange`, `@eq`, …), control-flow rules without a severity, `^$` presence checks (this engine skips a rule whose target is empty), rules whose only variables have no equivalent (`TX`, `&ARGS`, `MULTIPART_*`), rules that need `base64Decode`/`length`/`sha1`, and anything RE2 rejects.
 - A leading `^` or trailing `$` on a collection target (`ARGS`, `BODY`, `HEADERS`, `COOKIES`) is rewritten to a member boundary, because ModSecurity matches each value on its own while caddy-waf matches the whole query string / header list.
 
-The result is CRS-informed coverage, not CRS parity: see [`rules/crs/README.md`](https://github.com/fabriziosalmi/caddy-waf/blob/main/rules/crs/README.md) for the gaps that matter (libinjection, chained rules, parsed parameters) and the per-request cost. Unit tests: `python3 -m unittest test_get_owasp_rules`.
+The result is CRS-informed coverage, not CRS parity: the generated `COVERAGE.md` lists the gaps that matter (libinjection, chained rules, parsed parameters), and the [OWASP CRS section of `rules/README.md`](https://github.com/fabriziosalmi/caddy-waf/blob/main/rules/README.md#owasp-crs) covers loading the output. Unit tests: `python3 -m unittest test_get_owasp_rules`.
 
 ### `get_spiderlabs_rules.py`
 

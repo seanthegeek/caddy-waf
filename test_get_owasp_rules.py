@@ -240,18 +240,29 @@ class TranslationTests(unittest.TestCase):
     def test_tuning(self):
         path = os.path.join(self.tmp, "tuning.txt")
         with open(path, "w") as fh:
-            fh.write("942100 remove-target BODY,COOKIES  # raw body\n913100 remove  # noisy\n931100\n")
+            fh.write("942100 remove-target body,COOKIES  # raw body\n913100 remove  # noisy\n931100\n"
+                     "950100 remove-target response_body  # selector-free\n")
         tuning = owasp.read_tuning(path, "920350")
         translated, skipped, _ = self.translate(tuning)
         ported = {t.rule["id"]: t for t in translated}
-        self.assertEqual(sorted(ported), ["crs-942100", "crs-942200", "crs-950100"])
+        self.assertEqual(sorted(ported), ["crs-942100", "crs-942200"])
         self.assertEqual(ported["crs-942100"].rule["targets"], ["ARGS"])
+        self.assertEqual({s.id: s.detail for s in skipped}["950100"], "every target removed")
         self.assertTrue(any("target BODY removed by tuning: raw body" in n for n in ported["crs-942100"].notes))
         by_id = {s.id: s for s in skipped}
         self.assertEqual(by_id["913100"].category, "removed by tuning")
         self.assertEqual(by_id["913100"].detail, "noisy")
         self.assertEqual(by_id["920350"].detail, "listed in --exclude")
         self.assertEqual(by_id["931100"].category, "removed by tuning")
+
+    def test_tuning_keeps_selector_case(self):
+        path = os.path.join(self.tmp, "tuning.txt")
+        with open(path, "w") as fh:
+            fh.write("913100 remove-target headers:User-Agent\n")
+        tuning = owasp.read_tuning(path, None)
+        self.assertEqual(tuning.remove_targets["913100"], {"HEADERS:User-Agent": "tuning.txt:1"})
+        _, skipped, _ = self.translate(tuning)
+        self.assertEqual({s.id: s.category for s in skipped}["913100"], "removed by tuning")
 
     def test_tuning_syntax_error(self):
         path = os.path.join(self.tmp, "tuning.txt")
