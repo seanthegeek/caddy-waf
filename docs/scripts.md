@@ -8,7 +8,7 @@ All scripts target Python 3 and use only the standard library plus `requests` (a
 
 | Script | Inputs | Output | Purpose |
 |---|---|---|---|
-| [`get_owasp_rules.py`](https://github.com/fabriziosalmi/caddy-waf/blob/main/get_owasp_rules.py) | OWASP Core Rule Set repository (`coreruleset/coreruleset`) on GitHub | `rules.json` (overwritten / appended) | Downloads OWASP CRS `.conf` files via the GitHub API, parses `SecRule` directives, and converts them into the WAF's JSON rule schema. |
+| [`get_owasp_rules.py`](https://github.com/fabriziosalmi/caddy-waf/blob/main/get_owasp_rules.py) | An OWASP Core Rule Set release tarball (`coreruleset/coreruleset`, default `v4.9.0`) or a local `rules/` checkout | `rules/crs/crs-pl{1..4}.json`, `crs-pl{N}-response.json`, `COVERAGE.md` | SecLang → caddy-waf translator. Parses `SecRule` directives (continuations, chains, quoted actions), ports the `@rx`/`@pm`/`@pmFromFile` rules, maps variables to targets and `t:` chains to `transformations`, validates every pattern with Go's RE2, and writes a coverage report of what was skipped and why. |
 | [`get_spiderlabs_rules.py`](https://github.com/fabriziosalmi/caddy-waf/blob/main/get_spiderlabs_rules.py) | Trustwave SpiderLabs ModSecurity rules | `spiderlabs_rules.json` | Same idea as the OWASP script, sourced from SpiderLabs. Keeps only `@rx` (regex) rules and strips the operator, so the output compiles under RE2; non-regex operators are skipped. |
 | [`get_vulnerability_rules.py`](https://github.com/fabriziosalmi/caddy-waf/blob/main/get_vulnerability_rules.py) | A built-in dictionary of CVE-style payloads | `rules.json` | Generates rules from a predefined payload table without any network calls. |
 | [`get_blacklisted_ip.py`](https://github.com/fabriziosalmi/caddy-waf/blob/main/get_blacklisted_ip.py) | Emerging Threats, CI Army, IPsum, BlockList.de, Greensnow, Tor exit-address feed | `ip_blacklist.txt` | Downloads multiple IP feeds, merges them, deduplicates, and writes one IP/CIDR per line. |
@@ -29,16 +29,33 @@ All scripts require outbound HTTPS access to their respective sources.
 
 ### `get_owasp_rules.py`
 
-Edit the constants at the top of the script (repo URL, rules directory, output path) if you want a non-default location. Run:
-
 ```bash
-python3 get_owasp_rules.py
+# One request bundle per paranoia level, downloading the CRS v4.9.0 tarball from GitHub:
+python3 get_owasp_rules.py --ref v4.9.0 --output-dir rules/crs
+
+# One cumulative file up to paranoia level 2, from a local CRS checkout:
+python3 get_owasp_rules.py --source ~/src/coreruleset/rules --paranoia-level 2 \
+    --output /etc/caddy/crs-pl2.json --report /etc/caddy/crs-coverage.md
 ```
 
-Notes:
+| Option | Meaning |
+|---|---|
+| `--ref TAG` / `--source DIR` | CRS git tag to download (default `v4.9.0`), or a local `rules/` directory (no network; `--ref` then only labels the report). |
+| `--output-dir DIR` | One request bundle per paranoia level (`crs-pl1.json` … `crs-pl4.json`) plus `crs-plN-response.json` for the phase 3/4 rules. |
+| `--output FILE --paranoia-level N` | One cumulative request bundle up to level N; response rules go to `FILE-response.json`. |
+| `--tuning FILE` | Per-rule adjustments, one per line: `<id> remove` drops a rule, `<id> remove-target BODY` keeps it off one target. `#` comments are copied into the report as the reason. |
+| `--exclude 920350,920440` | Ad hoc rule removal without a tuning file. |
+| `--block-severity CRITICAL` | Emit `"action": "block"` for rules at or above that severity. Default: every rule is `log` (advisory). |
+| `--re2check go\|python\|auto` | Pattern validator. `go` runs `go run ./tools/re2check` so patterns are compiled by the same `regexp` package caddy-waf uses and fails if that is not possible; `python` is a syntax heuristic (lookaround, backreferences) for machines without Go; `auto` (default) uses Go when the helper and toolchain are available and warns and falls back otherwise, e.g. when the script has been copied out of the repository. |
+| `--report FILE` | Where to write the coverage report (default `COVERAGE.md` next to the output). |
 
-- The script uses the unauthenticated GitHub API. For large repositories you may hit rate limits (60 requests/hour per IP); add a `GITHUB_TOKEN` to the `headers` dictionary if needed.
-- The conversion from ModSecurity `SecRule` to the WAF JSON schema is heuristic. Validate the output before deploying — some rules may need manual touch-ups.
+What gets ported, and what does not:
+
+- Ported: `@rx` rules as-is; `@pm`/`@pmFromFile` keyword lists as a case-insensitive alternation (sorted so Go can factor common prefixes; unsorted lists are 10–20× slower to match); `t:` chains mapped onto the engine's `transformations` (unsupported steps such as `cmdLine` and `jsDecode` are dropped with a note, `removeWhitespace` is approximated by `compressWhitespace`); CRS variables mapped onto targets (`ARGS` → `ARGS` + `BODY`, `REQUEST_HEADERS:Host` → `HOST`, `XML` → `BODY`, …); severity → score (CRITICAL 5, ERROR 4, WARNING 3, NOTICE 2); the `paranoia-level/N` tag → output file.
+- Skipped, and listed in the report with the reason: chained rules, every non-regex operator (`@detectSQLi`, `@validateByteRange`, `@eq`, …), control-flow rules without a severity, `^$` presence checks (this engine skips a rule whose target is empty), rules whose only variables have no equivalent (`TX`, `&ARGS`, `MULTIPART_*`), rules that need `base64Decode`/`length`/`sha1`, and anything RE2 rejects.
+- A leading `^` or trailing `$` on a collection target (`ARGS`, `BODY`, `HEADERS`, `COOKIES`) is rewritten to a member boundary, because ModSecurity matches each value on its own while caddy-waf matches the whole query string / header list.
+
+The result is CRS-informed coverage, not CRS parity: the generated `COVERAGE.md` lists the gaps that matter (libinjection, chained rules, parsed parameters), and the [OWASP CRS section of `rules/README.md`](https://github.com/fabriziosalmi/caddy-waf/blob/main/rules/README.md#owasp-crs) covers loading the output. Unit tests: `python3 -m unittest test_get_owasp_rules`.
 
 ### `get_spiderlabs_rules.py`
 
@@ -91,8 +108,8 @@ To keep blacklists fresh, schedule the scripts with `cron` or systemd timers. Re
 0 */6 * * * cd /etc/caddy && /usr/bin/python3 get_blacklisted_ip.py  >> /var/log/caddy/ip-feed.log  2>&1
 0 */6 * * * cd /etc/caddy && /usr/bin/python3 get_blacklisted_dns.py >> /var/log/caddy/dns-feed.log 2>&1
 
-# Refresh rules nightly
-30 3 * * *  cd /etc/caddy && /usr/bin/python3 get_owasp_rules.py     >> /var/log/caddy/owasp.log    2>&1
+# Refresh the CRS bundle nightly (re-validates against RE2; needs the go toolchain)
+30 3 * * *  cd /etc/caddy && /usr/bin/python3 get_owasp_rules.py --output /etc/caddy/feeds/crs-pl1.json >> /var/log/caddy/owasp.log 2>&1
 ```
 
 When the script writes a new `ip_blacklist.txt` or `dns_blacklist.txt` over the file pointed to by the corresponding `*_file` directive, the file watcher fires and the WAF rebuilds the prefix trie / DNS map atomically (see [dynamicupdates.md](dynamicupdates.md)).
